@@ -1,118 +1,362 @@
-const WebSocket = require("ws");
 const http = require("http");
+const WebSocket = require("ws");
 
 const PORT = process.env.PORT || 3000;
 
+// ================================
+// HTTP SERVER
+// ================================
+
 const server = http.createServer((req, res) => {
     res.writeHead(200, {
-        "Content-Type": "text/html; charset=utf-8"
+        "Content-Type": "text/html; charset=utf-8",
+        "Access-Control-Allow-Origin": "*"
     });
 
     res.end(`
-        <h1>⚽ سرور چت انقزی فعال است</h1>
-        <p>Anghezi Chat WebSocket Server</p>
+        <!DOCTYPE html>
+        <html lang="fa" dir="rtl">
+        <head>
+            <meta charset="UTF-8">
+            <title>Anghezi Chat Server</title>
+        </head>
+        <body>
+            <h1>⚽ سرور چت انقزی فعال است</h1>
+            <p>Anghezi Chat WebSocket Server</p>
+            <p>🟢 Server Online</p>
+        </body>
+        </html>
     `);
 });
 
-const wss = new WebSocket.Server({ server });
+
+// ================================
+// WEBSOCKET SERVER
+// ================================
+
+const wss = new WebSocket.Server({
+    server: server
+});
+
+
+// ================================
+// USERS
+// ================================
 
 const users = new Map();
 
+
+// ================================
+// SEND TO ALL USERS
+// ================================
+
 function sendToAll(data) {
+
     const message = JSON.stringify(data);
 
-    wss.clients.forEach(client => {
+    wss.clients.forEach((client) => {
+
         if (client.readyState === WebSocket.OPEN) {
-            client.send(message);
+
+            try {
+                client.send(message);
+            } catch (error) {
+                console.log(
+                    "❌ Send error:",
+                    error.message
+                );
+            }
+
         }
+
     });
 }
 
+
+// ================================
+// ONLINE COUNT
+// ================================
+
 function sendOnlineCount() {
+
     sendToAll({
         type: "online",
         count: wss.clients.size
     });
+
 }
 
-wss.on("connection", (socket) => {
+
+// ================================
+// WEBSOCKET CONNECTION
+// ================================
+
+wss.on("connection", (socket, request) => {
 
     let username = "کاربر";
 
+    console.log(
+        "🟢 WebSocket connected:",
+        request.socket.remoteAddress
+    );
+
+
+    // خوش آمدگویی
     socket.send(JSON.stringify({
         type: "system",
         message: "به چت آنلاین انقزی خوش آمدید! ⚽"
     }));
 
+
+    // تعداد کاربران
     sendOnlineCount();
+
+
+    // ================================
+    // RECEIVE MESSAGE
+    // ================================
 
     socket.on("message", (raw) => {
 
         try {
-            const data = JSON.parse(raw);
 
-            // تعیین نام کاربر
+            const textData = raw.toString();
+
+            const data = JSON.parse(textData);
+
+
+            // ============================
+            // JOIN
+            // ============================
+
             if (data.type === "join") {
 
                 username =
-                    String(data.username || "کاربر")
+                    String(
+                        data.username || "کاربر"
+                    )
                     .trim()
                     .substring(0, 20);
 
-                users.set(socket, username);
+
+                if (!username) {
+                    username = "کاربر";
+                }
+
+
+                users.set(
+                    socket,
+                    username
+                );
+
+
+                console.log(
+                    `👤 ${username} joined`
+                );
+
 
                 sendToAll({
                     type: "system",
-                    message: `🟢 ${username} وارد چت شد`
+                    message:
+                        `🟢 ${username} وارد چت شد`
                 });
 
+
                 sendOnlineCount();
+
                 return;
             }
 
-            // پیام چت
+
+            // ============================
+            // CHAT MESSAGE
+            // ============================
+
             if (data.type === "message") {
 
-                const text =
-                    String(data.message || "")
+                const message =
+                    String(
+                        data.message || ""
+                    )
                     .trim()
                     .substring(0, 500);
 
-                if (!text) return;
+
+                if (!message) {
+                    return;
+                }
+
+
+                console.log(
+                    `💬 ${username}: ${message}`
+                );
+
 
                 sendToAll({
+
                     type: "message",
-                    username: username,
-                    message: text,
-                    time: new Date().toLocaleTimeString("fa-IR", {
-                        hour: "2-digit",
-                        minute: "2-digit"
-                    })
+
+                    username:
+                        username,
+
+                    message:
+                        message,
+
+                    time:
+                        new Date()
+                        .toLocaleTimeString(
+                            "fa-IR",
+                            {
+                                hour: "2-digit",
+                                minute: "2-digit"
+                            }
+                        )
+
                 });
+
             }
 
         } catch (error) {
-            console.log("خطای پیام:", error.message);
+
+            console.log(
+                "❌ Message error:",
+                error.message
+            );
+
         }
+
     });
+
+
+    // ================================
+    // DISCONNECT
+    // ================================
 
     socket.on("close", () => {
 
+        const oldUsername =
+            username;
+
+
         users.delete(socket);
+
+
+        console.log(
+            `🔴 ${oldUsername} disconnected`
+        );
+
 
         sendToAll({
             type: "system",
-            message: `🔴 ${username} از چت خارج شد`
+            message:
+                `🔴 ${oldUsername} از چت خارج شد`
         });
 
+
         sendOnlineCount();
+
     });
+
+
+    // ================================
+    // ERROR
+    // ================================
 
     socket.on("error", (error) => {
-        console.log("WebSocket Error:", error.message);
+
+        console.log(
+            "❌ WebSocket Error:",
+            error.message
+        );
+
     });
+
 });
 
+
+// ================================
+// KEEP CONNECTION ALIVE
+// ================================
+
+const heartbeat =
+    setInterval(() => {
+
+        wss.clients.forEach((socket) => {
+
+            if (
+                socket.readyState ===
+                WebSocket.OPEN
+            ) {
+
+                try {
+
+                    socket.ping();
+
+                } catch (error) {
+
+                    console.log(
+                        "❌ Ping error:",
+                        error.message
+                    );
+
+                }
+
+            }
+
+        });
+
+    }, 25000);
+
+
+// ================================
+// SERVER START
+// ================================
+
 server.listen(PORT, () => {
-    console.log(`🚀 Anghezi Chat Server running on port ${PORT}`);
+
+    console.log(
+        "================================"
+    );
+
+    console.log(
+        "🚀 ANGHEZI CHAT SERVER"
+    );
+
+    console.log(
+        `🌐 HTTP PORT: ${PORT}`
+    );
+
+    console.log(
+        "🔌 WEBSOCKET: ENABLED"
+    );
+
+    console.log(
+        "💚 SERVER IS READY"
+    );
+
+    console.log(
+        "================================"
+    );
+
+});
+
+
+// ================================
+// SHUTDOWN
+// ================================
+
+process.on("SIGTERM", () => {
+
+    clearInterval(heartbeat);
+
+    server.close(() => {
+
+        console.log(
+            "🛑 Server stopped"
+        );
+
+        process.exit(0);
+
+    });
+
 });
