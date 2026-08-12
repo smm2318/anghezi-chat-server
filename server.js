@@ -9,8 +9,7 @@ const PORT = process.env.PORT || 3000;
 
 const server = http.createServer((req, res) => {
     res.writeHead(200, {
-        "Content-Type": "text/html; charset=utf-8",
-        "Access-Control-Allow-Origin": "*"
+        "Content-Type": "text/html; charset=utf-8"
     });
 
     res.end(`
@@ -18,12 +17,11 @@ const server = http.createServer((req, res) => {
         <html lang="fa" dir="rtl">
         <head>
             <meta charset="UTF-8">
-            <title>Anghezi Chat Server</title>
+            <title>سرور چت انقزی</title>
         </head>
         <body>
             <h1>⚽ سرور چت انقزی فعال است</h1>
             <p>Anghezi Chat WebSocket Server</p>
-            <p>🟢 Server Online</p>
         </body>
         </html>
     `);
@@ -35,7 +33,44 @@ const server = http.createServer((req, res) => {
 // ================================
 
 const wss = new WebSocket.Server({
-    server: server
+    noServer: true
+});
+
+
+// ================================
+// WEBSOCKET PATH
+// ================================
+
+server.on("upgrade", (request, socket, head) => {
+
+    const url = new URL(
+        request.url,
+        `http://${request.headers.host}`
+    );
+
+    if (url.pathname !== "/ws") {
+
+        socket.write(
+            "HTTP/1.1 404 Not Found\r\n\r\n"
+        );
+
+        socket.destroy();
+
+        return;
+    }
+
+    wss.handleUpgrade(
+        request,
+        socket,
+        head,
+        (ws) => {
+            wss.emit(
+                "connection",
+                ws,
+                request
+            );
+        }
+    );
 });
 
 
@@ -47,7 +82,7 @@ const users = new Map();
 
 
 // ================================
-// SEND TO ALL USERS
+// BROADCAST
 // ================================
 
 function sendToAll(data) {
@@ -58,14 +93,7 @@ function sendToAll(data) {
 
         if (client.readyState === WebSocket.OPEN) {
 
-            try {
-                client.send(message);
-            } catch (error) {
-                console.log(
-                    "❌ Send error:",
-                    error.message
-                );
-            }
+            client.send(message);
 
         }
 
@@ -88,7 +116,7 @@ function sendOnlineCount() {
 
 
 // ================================
-// WEBSOCKET CONNECTION
+// CONNECTION
 // ================================
 
 wss.on("connection", (socket, request) => {
@@ -101,34 +129,28 @@ wss.on("connection", (socket, request) => {
     );
 
 
-    // خوش آمدگویی
     socket.send(JSON.stringify({
         type: "system",
         message: "به چت آنلاین انقزی خوش آمدید! ⚽"
     }));
 
 
-    // تعداد کاربران
     sendOnlineCount();
 
 
-    // ================================
-    // RECEIVE MESSAGE
-    // ================================
+    // ============================
+    // MESSAGE
+    // ============================
 
     socket.on("message", (raw) => {
 
         try {
 
-            const textData = raw.toString();
+            const data =
+                JSON.parse(raw.toString());
 
-            const data = JSON.parse(textData);
 
-
-            // ============================
             // JOIN
-            // ============================
-
             if (data.type === "join") {
 
                 username =
@@ -138,22 +160,18 @@ wss.on("connection", (socket, request) => {
                     .trim()
                     .substring(0, 20);
 
-
                 if (!username) {
                     username = "کاربر";
                 }
-
 
                 users.set(
                     socket,
                     username
                 );
 
-
                 console.log(
                     `👤 ${username} joined`
                 );
-
 
                 sendToAll({
                     type: "system",
@@ -161,36 +179,29 @@ wss.on("connection", (socket, request) => {
                         `🟢 ${username} وارد چت شد`
                 });
 
-
                 sendOnlineCount();
 
                 return;
             }
 
 
-            // ============================
             // CHAT MESSAGE
-            // ============================
-
             if (data.type === "message") {
 
-                const message =
+                const text =
                     String(
                         data.message || ""
                     )
                     .trim()
                     .substring(0, 500);
 
-
-                if (!message) {
+                if (!text) {
                     return;
                 }
 
-
                 console.log(
-                    `💬 ${username}: ${message}`
+                    `💬 ${username}: ${text}`
                 );
-
 
                 sendToAll({
 
@@ -200,7 +211,7 @@ wss.on("connection", (socket, request) => {
                         username,
 
                     message:
-                        message,
+                        text,
 
                     time:
                         new Date()
@@ -228,39 +239,32 @@ wss.on("connection", (socket, request) => {
     });
 
 
-    // ================================
-    // DISCONNECT
-    // ================================
+    // ============================
+    // CLOSE
+    // ============================
 
     socket.on("close", () => {
 
-        const oldUsername =
-            username;
-
-
         users.delete(socket);
 
-
         console.log(
-            `🔴 ${oldUsername} disconnected`
+            `🔴 ${username} disconnected`
         );
-
 
         sendToAll({
             type: "system",
             message:
-                `🔴 ${oldUsername} از چت خارج شد`
+                `🔴 ${username} از چت خارج شد`
         });
-
 
         sendOnlineCount();
 
     });
 
 
-    // ================================
+    // ============================
     // ERROR
-    // ================================
+    // ============================
 
     socket.on("error", (error) => {
 
@@ -275,41 +279,26 @@ wss.on("connection", (socket, request) => {
 
 
 // ================================
-// KEEP CONNECTION ALIVE
+// KEEP ALIVE
 // ================================
 
-const heartbeat =
-    setInterval(() => {
+const heartbeat = setInterval(() => {
 
-        wss.clients.forEach((socket) => {
+    wss.clients.forEach((socket) => {
 
-            if (
-                socket.readyState ===
-                WebSocket.OPEN
-            ) {
+        if (socket.readyState === WebSocket.OPEN) {
 
-                try {
+            socket.ping();
 
-                    socket.ping();
+        }
 
-                } catch (error) {
+    });
 
-                    console.log(
-                        "❌ Ping error:",
-                        error.message
-                    );
-
-                }
-
-            }
-
-        });
-
-    }, 25000);
+}, 25000);
 
 
 // ================================
-// SERVER START
+// START SERVER
 // ================================
 
 server.listen(PORT, () => {
@@ -327,7 +316,7 @@ server.listen(PORT, () => {
     );
 
     console.log(
-        "🔌 WEBSOCKET: ENABLED"
+        "🔌 WEBSOCKET PATH: /ws"
     );
 
     console.log(
