@@ -3,88 +3,29 @@ const WebSocket = require("ws");
 
 const PORT = process.env.PORT || 3000;
 
-// ================================
 // HTTP SERVER
-// ================================
-
 const server = http.createServer((req, res) => {
     res.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8"
     });
 
     res.end(`
-        <!DOCTYPE html>
-        <html lang="fa" dir="rtl">
-        <head>
-            <meta charset="UTF-8">
-            <title>سرور چت انقزی</title>
-        </head>
-        <body>
-            <h1>⚽ سرور چت انقزی فعال است</h1>
-            <p>Anghezi Chat WebSocket Server</p>
-        </body>
-        </html>
+        <h1>⚽ سرور چت انقزی فعال است</h1>
+        <p>Anghezi Chat WebSocket Server</p>
     `);
 });
 
-
-// ================================
 // WEBSOCKET SERVER
-// ================================
-
 const wss = new WebSocket.Server({
-    noServer: true
+    server: server
 });
 
 
-// ================================
-// WEBSOCKET PATH
-// ================================
-
-server.on("upgrade", (request, socket, head) => {
-
-    const url = new URL(
-        request.url,
-        `http://${request.headers.host}`
-    );
-
-    if (url.pathname !== "/ws") {
-
-        socket.write(
-            "HTTP/1.1 404 Not Found\r\n\r\n"
-        );
-
-        socket.destroy();
-
-        return;
-    }
-
-    wss.handleUpgrade(
-        request,
-        socket,
-        head,
-        (ws) => {
-            wss.emit(
-                "connection",
-                ws,
-                request
-            );
-        }
-    );
-});
-
-
-// ================================
-// USERS
-// ================================
-
+// ONLINE USERS
 const users = new Map();
 
 
-// ================================
-// BROADCAST
-// ================================
-
+// SEND TO ALL
 function sendToAll(data) {
 
     const message = JSON.stringify(data);
@@ -92,19 +33,15 @@ function sendToAll(data) {
     wss.clients.forEach((client) => {
 
         if (client.readyState === WebSocket.OPEN) {
-
             client.send(message);
-
         }
 
     });
+
 }
 
 
-// ================================
 // ONLINE COUNT
-// ================================
-
 function sendOnlineCount() {
 
     sendToAll({
@@ -115,20 +52,15 @@ function sendOnlineCount() {
 }
 
 
-// ================================
-// CONNECTION
-// ================================
-
+// NEW CONNECTION
 wss.on("connection", (socket, request) => {
 
     let username = "کاربر";
 
-    console.log(
-        "🟢 WebSocket connected:",
-        request.socket.remoteAddress
-    );
+    console.log("🟢 WebSocket connected");
 
 
+    // WELCOME
     socket.send(JSON.stringify({
         type: "system",
         message: "به چت آنلاین انقزی خوش آمدید! ⚽"
@@ -138,27 +70,24 @@ wss.on("connection", (socket, request) => {
     sendOnlineCount();
 
 
-    // ============================
     // MESSAGE
-    // ============================
-
     socket.on("message", (raw) => {
 
         try {
 
-            const data =
-                JSON.parse(raw.toString());
+            const data = JSON.parse(
+                raw.toString()
+            );
 
 
             // JOIN
             if (data.type === "join") {
 
-                username =
-                    String(
-                        data.username || "کاربر"
-                    )
-                    .trim()
-                    .substring(0, 20);
+                username = String(
+                    data.username || "کاربر"
+                )
+                .trim()
+                .substring(0, 20);
 
                 if (!username) {
                     username = "کاربر";
@@ -188,12 +117,11 @@ wss.on("connection", (socket, request) => {
             // CHAT MESSAGE
             if (data.type === "message") {
 
-                const text =
-                    String(
-                        data.message || ""
-                    )
-                    .trim()
-                    .substring(0, 500);
+                const text = String(
+                    data.message || ""
+                )
+                .trim()
+                .substring(0, 500);
 
                 if (!text) {
                     return;
@@ -239,10 +167,7 @@ wss.on("connection", (socket, request) => {
     });
 
 
-    // ============================
-    // CLOSE
-    // ============================
-
+    // DISCONNECT
     socket.on("close", () => {
 
         users.delete(socket);
@@ -262,14 +187,11 @@ wss.on("connection", (socket, request) => {
     });
 
 
-    // ============================
     // ERROR
-    // ============================
-
     socket.on("error", (error) => {
 
         console.log(
-            "❌ WebSocket Error:",
+            "❌ WebSocket error:",
             error.message
         );
 
@@ -278,10 +200,7 @@ wss.on("connection", (socket, request) => {
 });
 
 
-// ================================
 // KEEP ALIVE
-// ================================
-
 const heartbeat = setInterval(() => {
 
     wss.clients.forEach((socket) => {
@@ -297,10 +216,7 @@ const heartbeat = setInterval(() => {
 }, 25000);
 
 
-// ================================
 // START SERVER
-// ================================
-
 server.listen(PORT, () => {
 
     console.log(
@@ -312,11 +228,11 @@ server.listen(PORT, () => {
     );
 
     console.log(
-        `🌐 HTTP PORT: ${PORT}`
+        `🌐 PORT: ${PORT}`
     );
 
     console.log(
-        "🔌 WEBSOCKET PATH: /ws"
+        "🔌 WEBSOCKET: ENABLED"
     );
 
     console.log(
@@ -330,10 +246,7 @@ server.listen(PORT, () => {
 });
 
 
-// ================================
 // SHUTDOWN
-// ================================
-
 process.on("SIGTERM", () => {
 
     clearInterval(heartbeat);
